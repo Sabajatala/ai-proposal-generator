@@ -1,6 +1,7 @@
 const axios = require('axios');
 const Proposal = require('../models/Proposal');
 const Company = require('../models/Company');
+const { generateAndUploadPdf } = require('../utils/generatePdf');
 
 
 
@@ -384,6 +385,61 @@ exports.regenerateProposal = async (req, res) => {
   }
 };
 
+exports.generatePdf = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { version } = req.query; // ?version=latest (default) or ?version=2
+
+    const proposal = await Proposal.findById(id).populate('company');
+    if (!proposal) {
+      return res.status(404).json({ success: false, error: 'Proposal not found' });
+    }
+
+    // Choose content based on version
+    let selectedContent = proposal.aiContent;
+    let versionInfo = 'Latest version';
+    if (version && version !== 'latest') {
+      const selVer = proposal.versions.find(v => v.versionNumber === Number(version));
+      if (!selVer) {
+        return res.status(404).json({ success: false, error: 'Selected version not found' });
+      }
+      selectedContent = selVer.aiContent;
+      versionInfo = `Version ${version}`;
+    }
+
+    // Optional: skip if PDF already exists for this version (uncomment if you want)
+    // if (proposal.pdfUrl) {
+    //   return res.json({
+    //     success: true,
+    //     message: `PDF already generated for ${versionInfo}`,
+    //     pdfUrl: proposal.pdfUrl
+    //   });
+    // }
+
+    // Prepare content for PDF (use selected version's aiContent)
+    const pdfContent = {
+      ...proposal.toObject(),
+      aiContent: selectedContent
+    };
+
+    // Generate & upload
+    const pdfUrl = await generateAndUploadPdf(pdfContent);
+
+    // Save to DB (overwrite current pdfUrl – or extend to per-version if needed)
+    proposal.pdfUrl = pdfUrl;
+    await proposal.save();
+
+    res.json({
+      success: true,
+      message: `PDF generated successfully for ${versionInfo}`,
+      pdfUrl,
+      version: version || 'latest'
+    });
+  } catch (err) {
+    console.error('PDF generation error:', err);
+    res.status(500).json({ success: false, error: err.message || 'Failed to generate PDF' });
+  }
+};
 
 exports.updateProposal = async (req, res) => {
   try {

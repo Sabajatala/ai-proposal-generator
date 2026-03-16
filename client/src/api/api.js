@@ -36,7 +36,7 @@ export const deleteProposal = (id) => api.delete(`/api/proposals/${id}`);
 export const updateProposal = (id, data) => api.put(`/api/proposals/${id}`, data);
 export const updateProposalStatus = (id, status) => api.patch(`/api/proposals/${id}/status`, { status });
 
-// ───  AI Editing & Regeneration ─────────────
+// ───  AI Editing & Regeneration ────
 
 export const chatEdit = (id, data) =>
   api.post(`/api/proposals/${id}/chat`, data);
@@ -44,6 +44,9 @@ export const chatEdit = (id, data) =>
 
 export const regenerateProposal = (id) =>
   api.post(`/api/proposals/${id}/regenerate`);
+
+// ─── PDF Generation ───
+export const generatePdf = (id) => api.post(`/api/proposals/${id}/pdf`);
 
 
 export default api;
