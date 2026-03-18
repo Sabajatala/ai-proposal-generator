@@ -384,57 +384,80 @@ exports.regenerateProposal = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
-
 exports.generatePdf = async (req, res) => {
   try {
     const { id } = req.params;
-    const { version } = req.query; // ?version=latest (default) or ?version=2
+    const { version = 'latest' } = req.query;
 
     const proposal = await Proposal.findById(id).populate('company');
     if (!proposal) {
       return res.status(404).json({ success: false, error: 'Proposal not found' });
     }
 
-    // Choose content based on version
     let selectedContent = proposal.aiContent;
-    let versionInfo = 'Latest version';
-    if (version && version !== 'latest') {
+    let versionNumber = 'latest';
+    let isLatest = true;
+
+    if (version !== 'latest') {
       const selVer = proposal.versions.find(v => v.versionNumber === Number(version));
       if (!selVer) {
-        return res.status(404).json({ success: false, error: 'Selected version not found' });
+        return res.status(404).json({ success: false, error: 'Version not found' });
       }
       selectedContent = selVer.aiContent;
-      versionInfo = `Version ${version}`;
+      versionNumber = selVer.versionNumber;
+      isLatest = false;
     }
 
-    // Optional: skip if PDF already exists for this version (uncomment if you want)
-    // if (proposal.pdfUrl) {
-    //   return res.json({
-    //     success: true,
-    //     message: `PDF already generated for ${versionInfo}`,
-    //     pdfUrl: proposal.pdfUrl
-    //   });
-    // }
+    // Optional: return existing PDF if already generated
+    if (isLatest && proposal.pdfUrl) {
+      return res.json({
+        success: true,
+        pdfUrl: proposal.pdfUrl,
+        message: 'Using existing PDF (latest)',
+        version: 'latest'
+      });
+    }
+    if (!isLatest) {
+      const existingVer = proposal.versions.find(v => v.versionNumber === Number(version));
+      if (existingVer?.pdfUrl) {
+        return res.json({
+          success: true,
+          pdfUrl: existingVer.pdfUrl,
+          message: `Using existing PDF (v${version})`,
+          version
+        });
+      }
+    }
 
-    // Prepare content for PDF (use selected version's aiContent)
+    // Prepare content
     const pdfContent = {
       ...proposal.toObject(),
-      aiContent: selectedContent
+      aiContent: selectedContent,
+      // you can add version watermark etc. if you want
+      versionLabel: isLatest ? 'Latest' : `Version ${versionNumber}`
     };
 
-    // Generate & upload
     const pdfUrl = await generateAndUploadPdf(pdfContent);
 
-    // Save to DB (overwrite current pdfUrl – or extend to per-version if needed)
-    proposal.pdfUrl = pdfUrl;
+    // Save to correct place
+    if (isLatest) {
+      proposal.pdfUrl = pdfUrl;
+    } else {
+      const verIndex = proposal.versions.findIndex(v => v.versionNumber === Number(version));
+      if (verIndex !== -1) {
+        proposal.versions[verIndex].pdfUrl = pdfUrl;
+      }
+    }
+
     await proposal.save();
 
     res.json({
       success: true,
-      message: `PDF generated successfully for ${versionInfo}`,
       pdfUrl,
-      version: version || 'latest'
+      message: `PDF generated for ${isLatest ? 'latest version' : `version ${version}`}`,
+      version: isLatest ? 'latest' : version
     });
+
   } catch (err) {
     console.error('PDF generation error:', err);
     res.status(500).json({ success: false, error: err.message || 'Failed to generate PDF' });
