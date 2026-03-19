@@ -433,7 +433,6 @@ exports.generatePdf = async (req, res) => {
     const pdfContent = {
       ...proposal.toObject(),
       aiContent: selectedContent,
-      // you can add version watermark etc. if you want
       versionLabel: isLatest ? 'Latest' : `Version ${versionNumber}`
     };
 
@@ -464,36 +463,120 @@ exports.generatePdf = async (req, res) => {
   }
 };
 
+// exports.updateProposal = async (req, res) => {
+//   try {
+//     const proposal = await Proposal.findById(req.params.id);
+
+//     if (!proposal) {
+//       return res.status(404).json({ success: false, error: 'Proposal not found' });
+//     }
+
+  
+//     if (proposal.status !== 'Draft') {
+//       return res.status(403).json({ success: false, error: 'Can only update Draft proposals' });
+//     }
+
+    
+//     const allowedUpdates = ['title', 'clientName', 'clientEmail', 'clientIndustry', 'projectType', 'budget', 'requirements'];
+//     allowedUpdates.forEach(field => {
+//       if (req.body[field] !== undefined) {
+//         proposal[field] = req.body[field];
+//       }
+//     });
+
+//     await proposal.save();
+
+//     res.json({
+//       success: true,
+//       message: 'Proposal updated successfully',
+//       data: proposal
+//     });
+//   } catch (err) {
+//     res.status(500).json({ success: false, error: err.message });
+//   }
+// };
+
 exports.updateProposal = async (req, res) => {
   try {
     const proposal = await Proposal.findById(req.params.id);
-
     if (!proposal) {
-      return res.status(404).json({ success: false, error: 'Proposal not found' });
+      return res.status(404).json({
+        success: false,
+        error: 'Proposal not found'
+      });
     }
 
-  
     if (proposal.status !== 'Draft') {
-      return res.status(403).json({ success: false, error: 'Can only update Draft proposals' });
+      return res.status(403).json({
+        success: false,
+        error: 'Can only edit proposals in Draft status'
+      });
     }
 
-    
-    const allowedUpdates = ['title', 'clientName', 'clientEmail', 'clientIndustry', 'projectType', 'budget', 'requirements'];
-    allowedUpdates.forEach(field => {
+    let shouldCreateNewVersion = false;
+
+    // 1. Update basic fields 
+    const updatableFields = [
+      'title',
+      'clientName',
+      'clientEmail',
+      'clientIndustry',
+      'projectType',
+      'budget',
+      'requirements',
+      'paymentTerms'
+    ];
+
+    updatableFields.forEach(field => {
       if (req.body[field] !== undefined) {
+        if (proposal[field] !== req.body[field]) {
+          shouldCreateNewVersion = true;
+        }
         proposal[field] = req.body[field];
       }
     });
 
+    // 2. Handle aiContent update (merge style - safest & most common)
+    if (req.body.aiContent && typeof req.body.aiContent === 'object') {
+      shouldCreateNewVersion = true;
+
+      
+      proposal.aiContent = {
+        ...proposal.aiContent,
+        ...req.body.aiContent
+      };
+    }
+
+    
+    // Create new version if anything important changed
+    
+    if (shouldCreateNewVersion) {
+      const newVersionNumber = (proposal.versions?.length || 0) + 1;
+
+      proposal.versions.push({
+        versionNumber: newVersionNumber,
+        aiContent: { ...proposal.aiContent }, 
+        createdAt: new Date(),
+        
+      });
+    }
+
     await proposal.save();
 
-    res.json({
+    res.status(200).json({
       success: true,
-      message: 'Proposal updated successfully',
+      message: shouldCreateNewVersion
+        ? `Proposal updated — new version ${proposal.versions.length} created`
+        : 'Proposal updated successfully',
       data: proposal
     });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+
+  } catch (error) {
+    console.error('updateProposal error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Server error while updating proposal'
+    });
   }
 };
 
